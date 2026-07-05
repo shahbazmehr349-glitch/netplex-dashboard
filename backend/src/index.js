@@ -3,7 +3,6 @@ const express = require('express');
 const cors = require('cors');
 const app = express();
 
-// Prevent WhatsApp library errors (or any unexpected async error) from crashing the entire server
 process.on('uncaughtException', (err) => {
   console.error('⚠️ Uncaught Exception (server stays alive):', err.message);
 });
@@ -26,6 +25,5 @@ app.use((err, req, res, next) => { console.error(err); res.status(500).json({ er
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`🚀 NetPlex backend running on port ${PORT}`);
-  // Resume any WhatsApp sessions that were connected before this restart
   require('./services/whatsapp').resumeAllConnections();
 });
