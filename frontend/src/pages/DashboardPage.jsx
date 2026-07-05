@@ -52,6 +52,8 @@ export default function DashboardPage() {
   const [newKn, setNewKn] = useState({ question: '', answer: '' });
   const [settings, setSettings] = useState({ reply_delay_min: 2, reply_delay_max: 5, bulk_delay_min: 30, bulk_delay_max: 60, admin_phones: [] });
   const [bulk, setBulk] = useState({ numbers: '', message: '' });
+  const [qrCode, setQrCode] = useState(null);
+  const [waConnecting, setWaConnecting] = useState(false);
 
   const NICHE_LABELS = { isp: { tracker_title: 'Complaints Tracker', record_label: 'Complaint' }, restaurant: { tracker_title: 'Reservations & Orders', record_label: 'Reservation' }, pizza_shop: { tracker_title: 'Orders Tracker', record_label: 'Order' }, retail_generic: { tracker_title: 'Requests Tracker', record_label: 'Request' } };
 
@@ -71,6 +73,23 @@ export default function DashboardPage() {
   }, [id]);
 
   useEffect(() => { load(); }, [load]);
+
+  const startWhatsappConnect = async () => {
+    setWaConnecting(true);
+    setQrCode(null);
+    await profilesApi.connectWhatsapp(id);
+    const poll = setInterval(async () => {
+      const r = await profilesApi.getQR(id);
+      if (r.data.status === 'qr_ready') setQrCode(r.data.qr);
+      if (r.data.status === 'connected') {
+        clearInterval(poll);
+        setWaConnecting(false);
+        setQrCode(null);
+        load();
+      }
+    }, 2000);
+    setTimeout(() => clearInterval(poll), 120000); // stop polling after 2 min
+  };
 
   const toggleBot = async () => {
     const r = await profilesApi.toggleBot(id);
@@ -122,13 +141,22 @@ export default function DashboardPage() {
                     <div key={s.label} className="bg-surface2 rounded-xl p-3"><p className="text-muted text-xs mb-1">{s.label}</p><p className="text-white text-xl font-semibold">{s.val}</p></div>
                   ))}
                 </div>
-                <button className="w-full py-2.5 text-sm border border-danger/30 text-danger rounded-xl hover:bg-danger/10 transition">Logout / Disconnect</button>
+                <button onClick={() => profilesApi.logoutWhatsapp(id).then(load)}
+                  className="w-full py-2.5 text-sm border border-danger/30 text-danger rounded-xl hover:bg-danger/10 transition">Logout / Disconnect</button>
+              </div>
+            ) : qrCode ? (
+              <div className="text-center py-4">
+                <img src={qrCode} alt="WhatsApp QR Code" className="w-48 h-48 mx-auto rounded-lg border border-border" />
+                <p className="text-muted text-xs mt-3">WhatsApp app kholo → Settings → Linked Devices → Scan QR</p>
               </div>
             ) : (
               <div className="text-center py-6">
                 <AlertTriangle size={32} className="text-warning mx-auto mb-3" />
-                <p className="text-white text-sm font-medium mb-1">Not Connected</p>
-                <p className="text-muted text-xs">Scan QR code to connect WhatsApp</p>
+                <p className="text-white text-sm font-medium mb-3">Not Connected</p>
+                <button onClick={startWhatsappConnect} disabled={waConnecting}
+                  className="bg-accent text-white text-sm px-5 py-2.5 rounded-xl hover:bg-accent-light transition disabled:opacity-50">
+                  {waConnecting ? 'Generating QR...' : 'Connect WhatsApp'}
+                </button>
               </div>
             )}
           </Card>
