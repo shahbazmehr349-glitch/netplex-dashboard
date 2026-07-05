@@ -24,4 +24,8 @@ app.use((req, res) => res.status(404).json({ error: 'Route not found' }));
 app.use((err, req, res, next) => { console.error(err); res.status(500).json({ error: 'Internal server error' }); });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`🚀 NetPlex backend running on port ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`🚀 NetPlex backend running on port ${PORT}`);
+  // Resume any WhatsApp sessions that were connected before this restart
+  require('./services/whatsapp').resumeAllConnections();
+});
