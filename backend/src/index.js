@@ -3,7 +3,6 @@ const express = require('express');
 const cors = require('cors');
 const app = express();
 
-// Prevent WhatsApp library errors (or any unexpected async error) from crashing the entire server
 process.on('uncaughtException', (err) => {
   console.error('⚠️ Uncaught Exception (server stays alive):', err.message);
 });
