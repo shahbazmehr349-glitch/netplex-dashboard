@@ -9,6 +9,7 @@ app.use(express.json());
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/profiles', require('./routes/profiles'));
 app.use('/api/profiles', require('./routes/dashboard'));
+app.use('/api/profiles', require('./routes/whatsapp'));
 
 app.get('/api/health', (_, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
 app.use((req, res) => res.status(404).json({ error: 'Route not found' }));
