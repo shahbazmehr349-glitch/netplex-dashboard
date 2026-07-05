@@ -3,6 +3,7 @@ const { Boom } = require('@hapi/boom');
 const QRCode = require('qrcode');
 const P = require('pino');
 const path = require('path');
+const fs = require('fs');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const db = require('../db');
 
@@ -10,6 +11,42 @@ const connections = {};
 
 function getSessionPath(profileId) {
   return path.join(__dirname, '..', '..', 'sessions', profileId);
+}
+
+async function backupSessionToDB(profileId) {
+  try {
+    const sessionPath = getSessionPath(profileId);
+    if (!fs.existsSync(sessionPath)) return;
+    const files = fs.readdirSync(sessionPath);
+    const data = {};
+    for (const file of files) {
+      data[file] = fs.readFileSync(path.join(sessionPath, file), 'utf-8');
+    }
+    await db.query(
+      `INSERT INTO whatsapp_sessions (profile_id, session_data, updated_at) VALUES ($1, $2, NOW())
+       ON CONFLICT (profile_id) DO UPDATE SET session_data = $2, updated_at = NOW()`,
+      [profileId, JSON.stringify(data)]
+    );
+  } catch (err) {
+    console.error(`backupSessionToDB error for ${profileId}:`, err.message);
+  }
+}
+
+async function restoreSessionFromDB(profileId) {
+  try {
+    const { rows } = await db.query('SELECT session_data FROM whatsapp_sessions WHERE profile_id=$1', [profileId]);
+    if (!rows.length || !rows[0].session_data) return false;
+    const sessionPath = getSessionPath(profileId);
+    fs.mkdirSync(sessionPath, { recursive: true });
+    const data = rows[0].session_data;
+    for (const [filename, content] of Object.entries(data)) {
+      fs.writeFileSync(path.join(sessionPath, filename), content, 'utf-8');
+    }
+    return true;
+  } catch (err) {
+    console.error(`restoreSessionFromDB error for ${profileId}:`, err.message);
+    return false;
+  }
 }
 
 async function getAIReply(profile, incomingMessage, customerPhone) {
@@ -61,6 +98,9 @@ async function getAIReply(profile, incomingMessage, customerPhone) {
 
 async function startConnection(profileId, onQR, onStatusChange) {
   const sessionPath = getSessionPath(profileId);
+
+  await restoreSessionFromDB(profileId);
+
   const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
   const { version } = await fetchLatestBaileysVersion();
 
@@ -73,7 +113,10 @@ async function startConnection(profileId, onQR, onStatusChange) {
 
   connections[profileId] = { sock, qr: null, status: 'connecting', phone: null };
 
-  sock.ev.on('creds.update', saveCreds);
+  sock.ev.on('creds.update', async () => {
+    await saveCreds();
+    await backupSessionToDB(profileId);
+  });
 
   sock.ev.on('connection.update', async (update) => {
     try {
