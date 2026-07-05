@@ -6,7 +6,6 @@ const path = require('path');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const db = require('../db');
 
-// In-memory store of active connections: profileId -> { sock, qr, status, phone }
 const connections = {};
 
 function getSessionPath(profileId) {
@@ -161,4 +160,18 @@ async function logout(profileId) {
   await db.query('UPDATE profiles SET whatsapp_status=$1, whatsapp_number=NULL WHERE profile_id=$2', ['disconnected', profileId]);
 }
 
-module.exports = { startConnection, getConnection, logout };
+async function resumeAllConnections() {
+  try {
+    const { rows } = await db.query("SELECT profile_id FROM profiles WHERE whatsapp_status = 'connected'");
+    for (const row of rows) {
+      console.log(`🔄 Resuming WhatsApp session for ${row.profile_id}...`);
+      startConnection(row.profile_id).catch(err => {
+        console.error(`Failed to resume ${row.profile_id}:`, err.message);
+      });
+    }
+  } catch (err) {
+    console.error('resumeAllConnections error:', err.message);
+  }
+}
+
+module.exports = { startConnection, getConnection, logout, resumeAllConnections };
