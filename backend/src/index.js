@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const app = express();
 
+// Prevent WhatsApp library errors (or any unexpected async error) from crashing the entire server
 process.on('uncaughtException', (err) => {
   console.error('⚠️ Uncaught Exception (server stays alive):', err.message);
 });
@@ -10,7 +11,12 @@ process.on('unhandledRejection', (reason) => {
   console.error('⚠️ Unhandled Rejection (server stays alive):', reason);
 });
 
-app.use(cors({ origin: process.env.FRONTEND_URL || '*' }));
+app.use(cors({
+  origin: true,
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 app.use(express.json());
 
 app.use('/api/auth', require('./routes/auth'));
