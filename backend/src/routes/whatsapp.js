@@ -2,7 +2,6 @@ const router = require('express').Router({ mergeParams: true });
 const auth = require('../middleware/auth');
 const wa = require('../services/whatsapp');
 
-// POST /api/profiles/:id/whatsapp/connect - start a new connection, generates QR
 router.post('/:id/whatsapp/connect', auth, async (req, res) => {
   const profileId = req.params.id;
   try {
@@ -10,7 +9,7 @@ router.post('/:id/whatsapp/connect', auth, async (req, res) => {
     if (existing && existing.status === 'connected') {
       return res.json({ status: 'connected', phone: existing.phone });
     }
-    await wa.startConnection(profileId);
+    await wa.startConnection(profileId, null, null, true);
     res.json({ status: 'connecting', message: 'QR code generate ho raha hai, /qr endpoint poll karein' });
   } catch (err) {
     console.error(err);
@@ -18,7 +17,6 @@ router.post('/:id/whatsapp/connect', auth, async (req, res) => {
   }
 });
 
-// GET /api/profiles/:id/whatsapp/qr - poll this until QR is ready
 router.get('/:id/whatsapp/qr', auth, async (req, res) => {
   const conn = wa.getConnection(req.params.id);
   if (!conn) return res.status(404).json({ error: 'No active connection. Call /connect first.' });
@@ -27,14 +25,12 @@ router.get('/:id/whatsapp/qr', auth, async (req, res) => {
   res.json({ status: conn.status || 'connecting' });
 });
 
-// GET /api/profiles/:id/whatsapp/status
 router.get('/:id/whatsapp/status', auth, async (req, res) => {
   const conn = wa.getConnection(req.params.id);
   if (!conn) return res.json({ status: 'disconnected' });
   res.json({ status: conn.status, phone: conn.phone });
 });
 
-// POST /api/profiles/:id/whatsapp/logout
 router.post('/:id/whatsapp/logout', auth, async (req, res) => {
   try {
     await wa.logout(req.params.id);
