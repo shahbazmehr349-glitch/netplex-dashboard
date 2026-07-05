@@ -77,58 +77,71 @@ async function startConnection(profileId, onQR, onStatusChange) {
   sock.ev.on('creds.update', saveCreds);
 
   sock.ev.on('connection.update', async (update) => {
-    const { connection, lastDisconnect, qr } = update;
+    try {
+      const { connection, lastDisconnect, qr } = update;
 
-    if (qr) {
-      const qrImage = await QRCode.toDataURL(qr);
-      connections[profileId].qr = qrImage;
-      connections[profileId].status = 'qr_ready';
-      if (onQR) onQR(qrImage);
-      if (onStatusChange) onStatusChange('qr_ready');
-    }
-
-    if (connection === 'close') {
-      const shouldReconnect = new Boom(lastDisconnect?.error)?.output?.statusCode !== DisconnectReason.loggedOut;
-      connections[profileId].status = 'disconnected';
-      if (onStatusChange) onStatusChange('disconnected');
-      await db.query('UPDATE profiles SET whatsapp_status=$1 WHERE profile_id=$2', ['disconnected', profileId]);
-
-      if (shouldReconnect) {
-        startConnection(profileId, onQR, onStatusChange);
+      if (qr) {
+        const qrImage = await QRCode.toDataURL(qr);
+        connections[profileId].qr = qrImage;
+        connections[profileId].status = 'qr_ready';
+        if (onQR) onQR(qrImage);
+        if (onStatusChange) onStatusChange('qr_ready');
       }
-    } else if (connection === 'open') {
-      const phone = sock.user?.id?.split(':')[0] || 'unknown';
-      connections[profileId].status = 'connected';
-      connections[profileId].phone = phone;
-      connections[profileId].qr = null;
-      if (onStatusChange) onStatusChange('connected', phone);
-      await db.query('UPDATE profiles SET whatsapp_status=$1, whatsapp_number=$2 WHERE profile_id=$3', ['connected', phone, profileId]);
+
+      if (connection === 'close') {
+        const statusCode = lastDisconnect?.error?.output?.statusCode;
+        const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+        connections[profileId].status = 'disconnected';
+        if (onStatusChange) onStatusChange('disconnected');
+        await db.query('UPDATE profiles SET whatsapp_status=$1 WHERE profile_id=$2', ['disconnected', profileId]);
+
+        if (shouldReconnect) {
+          setTimeout(() => startConnection(profileId, onQR, onStatusChange), 3000);
+        }
+      } else if (connection === 'open') {
+        const phone = sock.user?.id?.split(':')[0] || 'unknown';
+        connections[profileId].status = 'connected';
+        connections[profileId].phone = phone;
+        connections[profileId].qr = null;
+        if (onStatusChange) onStatusChange('connected', phone);
+        await db.query('UPDATE profiles SET whatsapp_status=$1, whatsapp_number=$2 WHERE profile_id=$3', ['connected', phone, profileId]);
+      }
+    } catch (err) {
+      console.error(`WhatsApp connection.update error for ${profileId}:`, err.message);
     }
   });
 
   sock.ev.on('messages.upsert', async ({ messages }) => {
-    const msg = messages[0];
-    if (!msg.message || msg.key.fromMe) return;
+    try {
+      const msg = messages[0];
+      if (!msg.message || msg.key.fromMe) return;
 
-    const customerPhone = msg.key.remoteJid.split('@')[0];
-    const incomingText = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
-    if (!incomingText) return;
+      const customerPhone = msg.key.remoteJid.split('@')[0];
+      const incomingText = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
+      if (!incomingText) return;
 
-    const blacklisted = await db.query('SELECT id FROM blacklist WHERE profile_id=$1 AND phone_number=$2', [profileId, customerPhone]);
-    if (blacklisted.rows.length > 0) return;
+      const blacklisted = await db.query('SELECT id FROM blacklist WHERE profile_id=$1 AND phone_number=$2', [profileId, customerPhone]);
+      if (blacklisted.rows.length > 0) return;
 
-    const profileResult = await db.query('SELECT * FROM profiles WHERE profile_id=$1', [profileId]);
-    const profile = profileResult.rows[0];
-    if (!profile || !profile.bot_active) return;
+      const profileResult = await db.query('SELECT * FROM profiles WHERE profile_id=$1', [profileId]);
+      const profile = profileResult.rows[0];
+      if (!profile || !profile.bot_active) return;
 
-    const reply = await getAIReply(profile, incomingText, customerPhone);
-    if (reply) {
-      const settingsResult = await db.query('SELECT reply_delay_min, reply_delay_max FROM profile_settings WHERE profile_id=$1', [profileId]);
-      const { reply_delay_min = 2, reply_delay_max = 5 } = settingsResult.rows[0] || {};
-      const delay = (Math.random() * (reply_delay_max - reply_delay_min) + reply_delay_min) * 1000;
-      setTimeout(async () => {
-        await sock.sendMessage(msg.key.remoteJid, { text: reply });
-      }, delay);
+      const reply = await getAIReply(profile, incomingText, customerPhone);
+      if (reply) {
+        const settingsResult = await db.query('SELECT reply_delay_min, reply_delay_max FROM profile_settings WHERE profile_id=$1', [profileId]);
+        const { reply_delay_min = 2, reply_delay_max = 5 } = settingsResult.rows[0] || {};
+        const delay = (Math.random() * (reply_delay_max - reply_delay_min) + reply_delay_min) * 1000;
+        setTimeout(async () => {
+          try {
+            await sock.sendMessage(msg.key.remoteJid, { text: reply });
+          } catch (sendErr) {
+            console.error('Failed to send WhatsApp message:', sendErr.message);
+          }
+        }, delay);
+      }
+    } catch (err) {
+      console.error(`WhatsApp messages.upsert error for ${profileId}:`, err.message);
     }
   });
 
